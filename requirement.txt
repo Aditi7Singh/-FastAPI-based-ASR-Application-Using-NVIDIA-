@@ -1,0 +1,33 @@
+# FastAPI and server dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Audio processing
+librosa==0.10.1
+soundfile==0.12.1
+numpy==1.24.4
+
+# Machine Learning
+torch==2.1.0
+torchaudio==2.1.0
+onnx==1.15.0
+onnxruntime==1.16.3
+
+# NeMo dependencies
+nemo-toolkit[asr]==1.22.0
+omegaconf==2.3.0
+hydra-core==1.3.2
+
+# Additional dependencies for NeMo
+pytorch-lightning==2.1.0
+torchmetrics==1.2.0
+transformers==4.35.0
+
+# Utilities
+pydantic==2.5.0
+python-json-logger==2.0.7
+tqdm==4.66.1
+
+# For improved performance (optional)
+# onnxruntime-gpu==1.16.3  # Uncomment for GPU support
