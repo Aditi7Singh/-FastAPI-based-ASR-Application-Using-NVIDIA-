@@ -1,0 +1,184 @@
+# NeMo ASR FastAPI Application Makefile
+
+.PHONY: help build run stop clean test setup convert-model install-deps dev
+
+# Default target
+help:
+	@echo "Available commands:"
+	@echo "  setup          - Install dependencies and setup environment"
+	@echo "  install-deps   - Install Python dependencies"
+	@echo "  convert-model  - Download and convert NeMo model to ONNX"
+	@echo "  build          - Build Docker image"
+	@echo "  run            - Run the application with Docker"
+	@echo "  run-local      - Run the application locally"
+	@echo "  stop           - Stop running containers"
+	@echo "  test           - Run API tests"
+	@echo "  test-local     - Run tests against local instance"
+	@echo "  clean          - Clean up containers and images"
+	@echo "  dev            - Start development environment"
+	@echo "  logs           - Show application logs"
+
+# Variables
+IMAGE_NAME = nemo-asr-api
+CONTAINER_NAME = nemo-asr-api
+PORT = 8000
+MODEL_DIR = ./models
+
+# Setup and Installation
+setup: install-deps convert-model
+	@echo "Setup completed!"
+
+install-deps:
+	@echo "Installing Python dependencies..."
+	pip install --upgrade pip
+	pip install -r requirements.txt
+
+convert-model:
+	@echo "Converting NeMo model to ONNX..."
+	mkdir -p $(MODEL_DIR)
+	python convert_to_onnx.py \
+		--model nvidia/stt_hi_conformer_ctc_medium \
+		--output-dir $(MODEL_DIR) \
+		--verify
+
+# Docker Operations
+build:
+	@echo "Building Docker image..."
+	docker build -t $(IMAGE_NAME) .
+
+run: build
+	@echo "Starting application with Docker..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
+	docker run -d \
+		--name $(CONTAINER_NAME) \
+		-p $(PORT):$(PORT) \
+		-v $(PWD)/$(MODEL_DIR):/app/$(MODEL_DIR) \
+		-v $(PWD)/logs:/app/logs \
+		$(IMAGE_NAME)
+	@echo "Application started at http://localhost:$(PORT)"
+	@echo "API docs available at http://localhost:$(PORT)/docs"
+
+run-compose:
+	@echo "Starting with Docker Compose..."
+	docker compose up -d
+	@echo "Application started at http://localhost:$(PORT)"
+
+run-local:
+	@echo "Starting application locally..."
+	@mkdir -p logs
+	python main.py
+
+stop:
+	@echo "Stopping containers..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker compose down 2>/dev/null || true
+
+# Testing
+test:
+	@echo "Running API tests..."
+	python test_api.py --generate-audio --duration 7
+
+test-local:
+	@echo "Running tests against local instance..."
+	python test_api.py --base-url http://localhost:$(PORT) --generate-audio
+
+test-concurrent:
+	@echo "Running concurrent tests..."
+	python test_api.py --concurrent-tests 5 --generate-audio
+
+# Development
+dev: install-deps
+	@echo "Starting development environment..."
+	@mkdir -p logs $(MODEL_DIR)
+	@if [ ! -f "$(MODEL_DIR)/stt_hi_conformer_ctc_medium.onnx" ]; then \
+		echo "Model not found, converting..."; \
+		make convert-model; \
+	fi
+	python main.py
+
+dev-watch:
+	@echo "Starting development with auto-reload..."
+	uvicorn main:app --host 0.0.0.0 --port $(PORT) --reload
+
+# Utilities
+logs:
+	@echo "Showing application logs..."
+	@docker logs -f $(CONTAINER_NAME) 2>/dev/null || echo "Container not running"
+
+shell:
+	@echo "Opening shell in container..."
+	docker exec -it $(CONTAINER_NAME) /bin/bash
+
+inspect:
+	@echo "Container information:"
+	@docker inspect $(CONTAINER_NAME) 2>/dev/null || echo "Container not found"
+
+# Health checks
+health:
+	@echo "Checking application health..."
+	@curl -s http://localhost:$(PORT)/health | python -m json.tool || echo "Application not responding"
+
+status:
+	@echo "Application status:"
+	@docker ps | grep $(CONTAINER_NAME) || echo "Container not running"
+	@echo ""
+	@curl -s http://localhost:$(PORT)/ | python -m json.tool 2>/dev/null || echo "API not responding"
+
+# Cleanup
+clean:
+	@echo "Cleaning up..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rmi $(IMAGE_NAME) 2>/dev/null || true
+	@docker system prune -f
+
+clean-all: clean
+	@echo "Deep cleaning..."
+	@rm -rf logs/
+	@rm -rf __pycache__/
+	@rm -f test_audio.wav short_test.wav
+	@docker volume prune -f
+
+# Model management
+download-model:
+	@echo "Downloading model files..."
+	./download_model.sh
+
+verify-model:
+	@echo "Verifying model files..."
+	@if [ -f "$(MODEL_DIR)/stt_hi_conformer_ctc_medium.onnx" ]; then \
+		echo "✅ ONNX model found"; \
+		python -c "import onnx; onnx.checker.check_model(onnx.load('$(MODEL_DIR)/stt_hi_conformer_ctc_medium.onnx')); print('✅ Model is valid')"; \
+	else \
+		echo "❌ ONNX model not found"; \
+	fi
+
+# Performance testing
+benchmark:
+	@echo "Running performance benchmark..."
+	python test_api.py --concurrent-tests 10 --generate-audio --duration 8
+
+# Production deployment helpers
+prod-build:
+	@echo "Building production image..."
+	docker build -f Dockerfile -t $(IMAGE_NAME):prod .
+
+prod-run:
+	@echo "Starting production deployment..."
+	docker compose --profile production up -d
+
+# Documentation
+docs:
+	@echo "API documentation available at:"
+	@echo "  http://localhost:$(PORT)/docs (Swagger UI)"
+	@echo "  http://localhost:$(PORT)/redoc (ReDoc)"
+
+# Show current configuration
+config:
+	@echo "Current configuration:"
+	@echo "  Image name: $(IMAGE_NAME)"
+	@echo "  Container name: $(CONTAINER_NAME)"
+	@echo "  Port: $(PORT)"
+	@echo "  Model directory: $(MODEL_DIR)"
+	@echo "  Model file: $(MODEL_DIR)/stt_hi_conformer_ctc_medium.onnx"
